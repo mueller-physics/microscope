@@ -32,6 +32,7 @@ from six import string_types
 from threading import Thread
 import Pyro4
 import numpy
+import imagetransport
 
 # Python 2.7 and 3 compatibility.
 try:
@@ -431,16 +432,22 @@ class DataDevice(Device):
     def _send_data(self, data, timestamp):
         """Dispatch data to the client."""
         if self._client:
-            try:
-                # Currently uses legacy receiveData. Would like to pass
-                # this function name as an argument to set_client, but
-                # not sure how to subsequently resolve this over Pyro.
-                self._client.receiveData(data, timestamp)
-            except Pyro4.errors.ConnectionClosedError:
-                # Nothing is listening
-                self._client = None
-            except:
-                raise
+            if isinstance( self._client, Pyro4.Proxy ):
+                try:
+                    # Currently uses legacy receiveData. Would like to pass
+                    # this function name as an argument to set_client, but
+                    # not sure how to subsequently resolve this over Pyro.
+                    self._client.receiveData(data, timestamp)
+                except Pyro4.errors.ConnectionClosedError:
+                    # Nothing is listening
+                    self._client = None
+                except:
+                    raise
+            if isinstance( self._client, imagetransport.ImageSender ):
+                try:
+                    self._client.sendImage( data )
+                except:
+                    raise
 
     def _dispatch_loop(self):
         """Process data and send results to any client."""
@@ -491,7 +498,13 @@ class DataDevice(Device):
         """Set up a connection to our client."""
         self._logger.info("Setting client to %s." % client_uri)
         if client_uri is not None:
-            self._client = Pyro4.Proxy(client_uri)
+            if isinstance(client_uri,basestring) and client_uri.startswith('FAIRSIM'):
+                self._logger.info("Using FAIRSIM as image transport")
+                self._client = imagetransport.ImageSender()
+                self._client.connect( client_uri[8:] )
+            else:
+                self._logger.info("Using PYRO as image transport")
+                self._client = Pyro4.Proxy(client_uri)
         else:
             self._client = None
 
